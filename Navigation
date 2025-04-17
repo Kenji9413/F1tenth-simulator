@@ -1,0 +1,94 @@
+import numpy as np
+import math
+import time
+
+class Vehicle:
+    PIXEL_TO_METER = 0.01055
+
+    def __init__(self, initial_position, initial_speed, map_image, simulator=None):
+        self.simulator = simulator
+        self.position = np.array(initial_position, dtype=np.float64)
+        self.orientation = 0
+        self.speed = initial_speed
+        self.sensor_data = {'lidar': [], 'speed': initial_speed}
+        self.trajectory = [self.position.copy()]
+        self.map = map_image
+        self.stop_distance = 0.5
+        self.angular_speed = 0
+        self.last_lidar_update = time.time()
+        self.obstacle_right_detected = False
+        self.obstacle_left_detected = False
+        self.start_time = time.time()
+        self.chronometer_running = True
+        self.lap_time = None
+
+    def move_vehicle(self, P1, P2, P3, P4, P5, P6):
+        self.update_sensors()
+        twist_linear = P1
+        twist_angular = P2
+
+        if self.obstacle_right_detected:
+            twist_linear = P3
+            twist_angular = P4
+        elif self.obstacle_left_detected:
+            twist_linear = P5
+            twist_angular = P6
+
+        self.speed = twist_linear
+        self.angular_speed = twist_angular
+
+        self.orientation += self.angular_speed * 0.1
+        speed_pixels = self.speed / self.PIXEL_TO_METER
+        dx = speed_pixels * math.cos(self.orientation) * 0.1
+        dy = speed_pixels * math.sin(self.orientation) * 0.1
+        self.position += np.array([dx, dy])
+        self.trajectory.append(self.position.copy())
+
+        self.check_finish_line()
+
+        if self.is_out_of_bounds():
+            print("🚗 Véhicule hors du circuit.")
+            return False
+
+        return True
+
+    def update_sensors(self):
+        current_time = time.time()
+        if current_time - self.last_lidar_update >= 0.025:
+            self.sensor_data['lidar'] = self.simulator.simulate_lidar()
+            self.sensor_data['speed'] = self.speed
+            self.last_lidar_update = current_time
+
+            self.obstacle_right_detected = False
+            self.obstacle_left_detected = False
+
+            front_right, front_left = [], []
+
+            for x, y, d in self.sensor_data['lidar']:
+                dx, dy = x - self.position[0], y - self.position[1]
+                angle = math.atan2(dy, dx)
+                angle_diff = (angle - self.orientation + np.pi) % (2 * np.pi) - np.pi
+
+                if -15 * math.pi/180 <= angle_diff <= -5 * math.pi/180:
+                    front_right.append(d)
+                elif 5 * math.pi/180 <= angle_diff <= 15 * math.pi/180:
+                    front_left.append(d)
+
+            if front_right:
+                self.obstacle_right_detected = min(front_right) < self.stop_distance
+            if front_left:
+                self.obstacle_left_detected = min(front_left) < self.stop_distance
+
+    def check_finish_line(self):
+        if 598 <= self.position[0] <= 602 and 490 <= self.position[1] <= 600:
+            if not self.lap_time:
+                self.lap_time = time.time() - self.start_time
+                print(f"🏁 Tour terminé en {self.lap_time:.2f}s")
+
+    def is_out_of_bounds(self):
+        x, y = int(self.position[0]), int(self.position[1])
+        return (
+            x < 0 or x >= self.map.shape[1] or
+            y < 0 or y >= self.map.shape[0] or
+            self.map[y, x] == 0
+        )
