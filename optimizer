@@ -1,128 +1,31 @@
 import numpy as np
-import time
-import csv
-import os
-from simulator import Simulator
 from scipy.optimize import minimize
-import matplotlib.pyplot as plt
 
 class Optimizer:
     """
-    Optimise les paramètres (incluant fixed_angular_right et fixed_angular_left).
-    Enregistre à chaque évaluation les valeurs dans un fichier CSV,
-    sans réécrire l’entête si le fichier existe déjà.
+    Encapsule l'appel à Nelder–Mead : prend x0 et optimise une fonction objectif.
     """
-    def __init__(self, map_image, x0, get_start_position_func, dt=0.1,
-                 csv_filename="optimizer_log.csv"):
-        self.map_image = map_image
+    def __init__(self, x0):
         self.x0 = x0
-        self.dt = dt
-        self.get_start_position_func = get_start_position_func
-        self.global_lap_counter = 0
 
-        self.csv_filename = csv_filename
-        file_exists = os.path.isfile(self.csv_filename)
-        self.log_file = open(self.csv_filename, "a", newline="")
-        self.log_writer = csv.writer(self.log_file)
-
-        if (not file_exists) or os.stat(self.csv_filename).st_size == 0:
-            self.log_writer.writerow([
-                "fixed_linear_speed",
-                "fixed_angular_right",
-                "fixed_angular_left",
-                "stop_distance",
-                "lidar_update_period",
-                "lap_time"
-            ])
-            self.log_file.flush()
-
-    def simulation_objective(self, params):
-        """
-        Lance une simulation avec 'params' et renvoie le temps (réel)
-        nécessaire pour compléter un tour, ou une pénalité si aucun tour
-        n'est complété. Enregistre immédiatement les paramètres évalués
-        et le résultat (lap_time) dans le CSV.
-        """
-        candidate_speed         = np.clip(params[0], 0.1, 1.0)
-        candidate_angular_right = np.clip(params[1], 1.5, 3.0)
-        candidate_angular_left  = np.clip(params[2], -3.0, -1.5)
-        candidate_stop_distance = np.clip(params[3], 0.5, 1.5)
-        candidate_lidar_period  = np.clip(params[4], 0.025, 0.1)
-
-        initial_position = self.get_start_position_func(self.map_image)
-        sim = Simulator(
-            self.map_image,
-            initial_position,
-            fixed_linear_speed=candidate_speed,
-            fixed_angular_right=candidate_angular_right,
-            fixed_angular_left=candidate_angular_left,
-            stop_distance=candidate_stop_distance,
-            lidar_update_period=candidate_lidar_period,
-            dt=self.dt
-        )
-
-        target_laps = 1
-        max_steps = 5000
-        fig, ax = plt.subplots()
-        plt.ion()
-        start_time = time.time()
-        step = 0
-        while sim.lap_count < target_laps and step < max_steps:
-            if not sim.step():
-                break
-            sim.render(ax, self.global_lap_counter)
-            plt.pause(0.001)
-            step += 1
-        end_time = time.time()
-        plt.close(fig)
-
-        if sim.lap_count < target_laps:
-            lap_time = 1e6
-        else:
-            lap_time = end_time - start_time
-            self.global_lap_counter += 1
-            print(f"[speed={candidate_speed:.3f}, "
-                  f"angular_right={candidate_angular_right:.3f}, "
-                  f"angular_left={candidate_angular_left:.3f}, "
-                  f"stop_dist={candidate_stop_distance:.3f}, "
-                  f"lidar_period={candidate_lidar_period:.3f}] => "
-                  f"Lap Time: {lap_time:.2f}s | Iteration: {self.global_lap_counter}")
-
-        self.log_writer.writerow([
-            candidate_speed,
-            candidate_angular_right,
-            candidate_angular_left,
-            candidate_stop_distance,
-            candidate_lidar_period,
-            lap_time
-        ])
-        self.log_file.flush()
-        return lap_time
-
-    def optimize(self, maxiter=10):
-        """Lance l'optimisation avec Nelder–Mead."""
+    def optimize(self, objective, maxiter=10):
         result = minimize(
-            self.simulation_objective,
-            self.x0,
-            method="Nelder-Mead",
-            options={
-                "maxiter": maxiter,   # itérations du simplexe
-                "maxfev":   maxiter,   # appels max à simulation_objective
-                "disp":     True       # affiche les détails de convergence
-            }
+            objective, self.x0,
+            method='Nelder-Mead',
+            options={'maxiter': maxiter, 'maxfev': maxiter, 'disp': True}
         )
-        self.log_file.close()
-
-        best = np.clip(result.x, [0.1,1.5,-3.0,0.5,0.025], [1.0,3.0,-1.5,1.5,0.1])
-        best_speed, best_ang_r, best_ang_l, best_sd, best_lp = best
-        best_score = result.fun
-
+        best = np.clip(
+            result.x,
+            [0.1, 1.5, -3.0, 0.5, 0.025],
+            [1.0, 3.0, -1.5, 1.5, 0.1]
+        )
         print("\n=== Résultats de l'optimisation ===")
-        print(f"fixed_linear_speed    : {best_speed:.3f}")
-        print(f"fixed_angular_right   : {best_ang_r:.3f}")
-        print(f"fixed_angular_left    : {best_ang_l:.3f}")
-        print(f"stop_distance         : {best_sd:.3f}")
-        print(f"lidar_update_period   : {best_lp:.3f}")
-        print(f"Score (lap time)      : {best_score:.2f}\n")
-
-        return best_speed, best_ang_r, best_ang_l, best_sd, best_lp, best_score
+        print(
+            f"Vit_linear: {best[0]:.3f}\n"
+            f"Vit_angular_right: {best[1]:.3f}\n"
+            f"Vit_angular_left: {best[2]:.3f}\n"
+            f"stop_distance: {best[3]:.3f}\n"
+            f"lidar_update_period: {best[4]:.3f}\n"
+            f"lap_time: {result.fun:.2f}"
+        )
+        return np.append(best, result.fun)
