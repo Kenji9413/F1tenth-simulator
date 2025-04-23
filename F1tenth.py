@@ -7,7 +7,7 @@ from Optimizer import Optimizer
 # ---------- MAIN ----------
 if __name__ == '__main__':
     # Chargement de la carte
-    map_file = r"C:\\Users\\nasre\\Documents\\Simulateur F1tenth\\mapsimtoulouse1.jpg"
+    map_file = 'chemin vers la carte'
     map_image = None
     if map_file.endswith('.npy'):
         map_image = np.load(map_file)
